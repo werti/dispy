@@ -2,12 +2,7 @@ import sys
 import os
 from setuptools import setup
 
-if sys.version_info.major == 3:
-    base_dir = 'py3'
-else:
-    assert sys.version_info.major == 2
-    assert sys.version_info.minor >= 7
-    base_dir = 'py2'
+base_dir = 'py3'
 
 setup(
     name='dispy',
@@ -35,8 +30,6 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.1',
         'Topic :: Scientific/Engineering',
