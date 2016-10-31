@@ -213,7 +213,7 @@ class _DispyNode(object):
                  name='', scheduler_node=None, scheduler_port=None,
                  dest_path_prefix='', clean=False, secret='', keyfile=None, certfile=None,
                  zombie_interval=60, service_start=None, service_stop=None, service_end=None,
-                 serve=-1, daemon=False, client_shutdown=False):
+                 serve=-1, daemon=False, client_shutdown=False, pulse_stats_interval = None):
         assert 0 < cpus <= multiprocessing.cpu_count()
         self.num_cpus = cpus
         if name:
@@ -363,6 +363,10 @@ class _DispyNode(object):
             self.__init_globals['_dispy_node'] = self
         self.tcp_coro = Coro(self.tcp_server)
         self.udp_coro = Coro(self.udp_server, _node_ipaddr(scheduler_node), scheduler_port)
+        if scheduler_node:
+            self.scheduler_node = scheduler_node
+            self.pulse_stats_interval = pulse_stats_interval
+            self.pulser_coro = Coro(self.pulse_stats)
         if not daemon:
             self.cmd_coro = Coro(self.cmd_proc)
 
@@ -402,7 +406,6 @@ class _DispyNode(object):
         if info.get('sign', None):
             pong_msg = {'ip_addr': self.ext_ip_addr, 'port': self.port, 'sign': self.sign,
                         'version': _dispy_version, 'name': self.name, 'cpus': self.avail_cpus,
-                        'platform': platform.platform(),
                         'auth': auth_code(self.secret, info['sign'])}
             if psutil:
                 pong_msg['avail_info'] = DispyNodeAvailInfo(
@@ -1108,6 +1111,25 @@ class _DispyNode(object):
             status = yield self._send_job_reply(job_info, resending=True)
             if status:
                 break
+    def pulse_stats(self, coro=None):
+        coro.set_daemon()
+        last_pulse_time = time.time()
+        while 1 and psutil and self.pulse_stats_interval:
+            yield coro.suspend(self.pulse_stats_interval)
+            now = time.time()
+            if self.pulse_stats_interval and (now - last_pulse_time) >= self.pulse_stats_interval:
+                last_pulse_time = now
+                sock = AsyncSocket(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+                sock.settimeout(MsgTimeout)
+                info = {'ip_addr': self.ext_ip_addr, 'port': self.port,
+                        'cpus': self.num_cpus - self.avail_cpus,
+                        'scheduler_ip_addr': self.scheduler_node}
+                info['avail_info'] = DispyNodeAvailInfo(
+                    100.0 - psutil.cpu_percent(), psutil.virtual_memory().available,
+                    psutil.disk_usage(self.dest_path_prefix).free,
+                    100.0 - psutil.swap_memory().percent)
+                yield sock.sendto(b'PULSE:' + serialize(info), (self.scheduler_node, self.scheduler['port']))
+                sock.close()
 
     def timer_task(self, coro=None):
         coro.set_daemon()
@@ -1580,7 +1602,7 @@ class _DispyNode(object):
                     print('    Client %s: %s @ %s running %s jobs' %
                           (i, compute.name, compute.scheduler_ip_addr, compute.pending_jobs))
                 print('')
-        self.shutdown('terminate')
+        self.shutdown('quit')
 
 
 if __name__ == '__main__':
@@ -1613,6 +1635,8 @@ if __name__ == '__main__':
                         help='name or IP address of scheduler to announce when starting')
     parser.add_argument('--scheduler_port', dest='scheduler_port', type=int, default=51347,
                         help='port number used by scheduler')
+    parser.add_argument('--pulse_stats_interval', dest='pulse_stats_interval', type=int, default=None,
+                        help='Interval for sending stats for scheduler')
     parser.add_argument('--max_file_size', dest='max_file_size', default=str(MaxFileSize),
                         help='maximum file size of any file transferred (use 0 for unlimited size)')
     parser.add_argument('--zombie_interval', dest='zombie_interval', type=float, default=60.0,
