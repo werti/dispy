@@ -375,7 +375,11 @@ class _Scheduler(object, metaclass=Singleton):
     def tcp_task(self, conn, addr, coro=None):
         # generator
         conn.settimeout(MsgTimeout)
-        msg = yield conn.recv_msg()
+        try:
+            msg = yield conn.recv_msg()
+        except Exception as e:
+            logger.warning('Error in receiving TCP task', addr[0], addr[1])
+            raise e
         if msg.startswith(b'JOB_REPLY:'):
             try:
                 info = deserialize(msg[len(b'JOB_REPLY:'):])
@@ -421,6 +425,7 @@ class _Scheduler(object, metaclass=Singleton):
                 yield sock.sendall(auth)
                 yield sock.send_msg(b'PING:' + serialize(msg))
             except:
+                logger.debug("Client: {}".format(info['ip_addr']))
                 logger.debug(traceback.format_exc())
             finally:
                 sock.close()
@@ -951,10 +956,13 @@ class _Scheduler(object, metaclass=Singleton):
                 assert cluster.client_auth == req['auth']
                 # for shared cluster, changing cpus may not be valid, as we
                 # don't maintain cpus per cluster
-                node = _node_ipaddr(node)
-                node = self._nodes.get(node, None)
-                if node:
-                    cpus = node.cpus
+                node = _node_ipaddr(req['node'])
+                if self._nodes.get(node, None):
+                    try:
+                        next(self.set_node_cpus(node, req['cpus']))
+                        cpus = req['cpus']
+                    except StopIteration:
+                        cpus = -1
             except:
                 logger.debug(traceback.format_exc())
             resp = serialize(cpus)
@@ -1152,7 +1160,10 @@ class _Scheduler(object, metaclass=Singleton):
         compute = cluster._compute
         compute.pulse_interval = self.pulse_interval
         if self.httpd and cluster.status_callback is None:
+            logger.debug('Add cluster')
             self.httpd.add_cluster(cluster)
+        else:
+            logger.debug("Didn't add cluster")
         # TODO: should we allow clients to add new nodes, or use only
         # the nodes initially created with command-line?
         self.send_ping_cluster(cluster._node_allocs, set(cluster._dispy_nodes.keys()))
@@ -1314,6 +1325,8 @@ class _Scheduler(object, metaclass=Singleton):
         node_computations = []
         node.name = info['name']
         node.scheduler_ip_addr = info['scheduler_ip_addr']
+        if self.httpd:
+            self.httpd.update_list_of_nodes(self._nodes)
         for cid, cluster in self._clusters.items():
             if cid in node.clusters:
                 continue
@@ -1643,6 +1656,8 @@ class _Scheduler(object, metaclass=Singleton):
                     self.unsched_jobs += 1
                 node.busy -= 1
             self._sched_event.set()
+        #except NoCPUs:
+        #    self.reschedule_jobs([_job])
         except:
             logger.warning('Failed to run job %s on %s for computation %s',
                            _job.uid, node.ip_addr, cluster._compute.name)
@@ -1652,7 +1667,7 @@ class _Scheduler(object, metaclass=Singleton):
             node._jobs.discard(_job.uid)
             if self._sched_jobs.pop(_job.uid, None) == _job:
                 if cluster.status_callback:
-                    if dispy_node:
+                    if 'dispy_node' in locals() and dispy_node:
                         dispy_node.update_time = time.time()
                         cluster.status_callback(DispyJob.Cancelled, dispy_node, _job.job)
                 node.busy -= 1
