@@ -226,6 +226,28 @@
           show_cluster();
         });
 
+        $('#terminate-cluster').click(function() {
+          if ($('select[name="terminate-confirm"]').val() != 'Yes') {
+            $('#messages').append('<li>Terminate jobs not confirmed</li>');
+            return false;
+          }
+          
+          $(this).prop('disabled', true);
+          
+          $.ajax({
+            url: '/terminate_cluster',
+            method: 'POST',
+            data: {uid:cur_cluster_name},
+            timeout: 5000
+          })
+            .done(function(data, t) {
+              $('#terminate-cluster').prop('disabled', false);
+            })
+            .fail(function(data, t) {
+              $('#terminate-cluster').prop('disabled', false);
+              $('#messages').append('<li>Terminate jobs failed</li>');
+            });
+        });
       });
     //]]>
     </script>
@@ -239,6 +261,7 @@
           <li class="active"><a href="monitor.html">Monitor</a></li>
           <li><a href="manage.html">Manage</a></li>
           <li><a href="node.html">Node</a></li>
+          <li><a href="available_nodes.html">All nodes</a></li>
         </ul>
       </nav>
 
@@ -265,14 +288,14 @@
         <thead>
           <tr>
             <th rowspan="2"></th><th rowspan="2">IP Address</th><th rowspan="2">Name</th>
-	    <th rowspan="2">CPUs</th><th rowspan="2">Busy</th>
-	    <th colspan="4">Available</th><th rowspan="2">Jobs<br />Done</th>
+      <th rowspan="2">CPUs</th><th rowspan="2">Busy</th>
+      <th colspan="4">Available</th><th rowspan="2">Jobs<br />Done</th>
             <th rowspan="2">Sec/Job</th><th rowspan="2">CPU Time<br />Sec</th>
-	    <th rowspan="2">Last Update</th>
-	  </tr>
+      <th rowspan="2">Last Update</th>
+    </tr>
 
-	  <tr>
-	    <th>CPU</th><th>Memory</th><th>Swap</th><th>Disk</th>
+    <tr>
+      <th>CPU</th><th>Memory</th><th>Swap</th><th>Disk</th>
           </tr>
         </thead>
         <tbody id="nodes">
@@ -287,6 +310,18 @@
           <input style="width:3em;" maxlength="6" type="text" id="timeout-value"
             value="%(TIMEOUT)s" />
           <button type="button" id="timeout-update" style="margin-left:5px;">Update</button>
+        </span>
+      </div>
+
+      <div id="terminate-div" style="margin:10px auto;">
+        <span class="border" style="padding:10px;display:inline-block;">
+            <strong>Terminate current cluster: </strong>
+            <select name="terminate-confirm" style="margin-left:5px;">
+              <option value="" selected="selected">Confirm</option>
+              <option value="No">No</option>
+              <option value="Yes">Yes</option>
+            </select>
+          <button type="button" id="terminate-cluster" style="margin-left:5px;">Terminate</button>
         </span>
       </div>
 

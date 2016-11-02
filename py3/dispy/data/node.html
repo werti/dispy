@@ -66,12 +66,12 @@
                   if (args.length > 0) {
                     args += ', ';
                   }
-	          args += job.kwargs;
+            args += job.kwargs;
                 }
                 rows += '<tr>' +
                   '<td><input type="checkbox" name="job" value="' + job.uid + '_' + i + '" /></td>' +
                   '<td>' + job.cluster + '</td><td>' + job.job_id + '</td><td>' + args + '</td>' +
-	          '<td>' + (new Date(job.sched_time_ms)).toLocaleTimeString() + '</td></tr>';
+            '<td>' + (new Date(job.sched_time_ms)).toLocaleTimeString() + '</td></tr>';
               });
               if (jobs.length > 0) {
                 if ($('#jobs').is(':hidden')) {
@@ -115,7 +115,7 @@
         } else {
           show_node(host);
         }
-	
+  
         $('#node-update').click(function() {
           host = $('#host').val().trim();
           // $(this).prop('disabled', true);
@@ -224,6 +224,7 @@
           <li><a href="monitor.html">Monitor</a></li>
           <li><a href="manage.html">Manage</a></li>
           <li class="active"><a href="node.html">Node</a></li>
+          <li><a href="available_nodes.html">All nodes</a></li>
         </ul>
       </nav>
 
