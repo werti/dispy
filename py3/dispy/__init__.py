@@ -39,11 +39,13 @@ __url__ = "http://dispy.sourceforge.net"
 __status__ = "Production"
 __version__ = "4.6.17"
 
-__all__ = ['logger', 'DispyJob', 'DispyNode', 'NodeAllocate', 'JobCluster', 'SharedJobCluster']
+__all__ = ['logger', 'DispyJob', 'DispyNode', 'NodeAllocate', 'JobCluster', 'SharedJobCluster', 'NoCPUs']
 
 _dispy_version = __version__
-MsgTimeout = 10
+MsgTimeout = 80
 
+class NoCPUs(Exception):
+    pass
 
 class DispyJob(object):
     """Job scheduled for execution with dispy.
@@ -407,6 +409,8 @@ class _Node(object):
         except:
             logger.error('Could not connect to %s:%s, %s',
                          self.ip_addr, self.port, traceback.format_exc())
+            logger.error('timeout:{}'.format(timeout))
+            logger.error('MSG:{}'.format(msg))
             # TODO: mark this node down, reschedule on different node?
             resp = traceback.format_exc()
         finally:
@@ -549,7 +553,10 @@ class _DispyJob_(object):
                 raise Exception(-1)
         resp = yield self.node.send(b'JOB:' + serialize(self), coro=coro)
         # TODO: deal with NAKs (reschedule?)
-        if resp != 0:
+        if resp == b'NAK (all cpus busy)':
+            logger.warning('Failed to run %s on %s: %s', self.uid, self.node.ip_addr, resp)
+            raise NoCPUs
+        elif resp != 0:
             logger.warning('Failed to run %s on %s: %s', self.uid, self.node.ip_addr, resp)
             raise Exception(str(resp))
         raise StopIteration(resp)
@@ -571,7 +578,7 @@ class _JobReply(object):
         self.hash = _job.hash
         self.ip_addr = ip_addr
         self.status = status
-        self.result = None
+        self.result = serialize(None)
         self.stdout = None
         self.stderr = None
         self.exception = None
