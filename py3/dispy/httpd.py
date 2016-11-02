@@ -109,6 +109,28 @@ class DispyHTTPServer(object):
                 self.end_headers()
                 self.wfile.write(json.dumps(clusters).encode())
                 return
+            elif self.path == '/all_nodes_list':
+                now = time.time()
+                self._dispy_ctx._cluster_lock.acquire()
+                if self._dispy_ctx.all_available_nodes:
+                    nodes = {key:{
+                                     "update_time":node.last_pulse, 
+                                     "avail_cpus":node.avail_cpus, 
+                                     "name":node.name, 
+                                     "cpus":node.cpus, 
+                                     "avail_info":node.avail_info.__dict__, 
+                                     "ip_addr":node.ip_addr, 
+                                     "busy":node.busy
+                                  }
+                             for key, node in self._dispy_ctx.all_available_nodes.items() if node.last_pulse and (now - node.last_pulse) <= 60 * 10}
+                else:
+                    nodes = {}
+                self._dispy_ctx._cluster_lock.release()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps(nodes).encode())
+                return
             elif self.path == '/nodes':
                 self._dispy_ctx._cluster_lock.acquire()
                 nodes = [
@@ -132,7 +154,7 @@ class DispyHTTPServer(object):
                     with open(path) as fd:
                         data = fd.read()
                     if path.endswith('.html'):
-                        if path.endswith('monitor.html') or path.endswith('node.html'):
+                        if path.endswith('monitor.html') or path.endswith('node.html') or path.endswith('available_nodes.html'):
                             data = data % {'TIMEOUT': str(self._dispy_ctx._poll_sec)}
                         content_type = 'text/html'
                     elif path.endswith('.js'):
@@ -233,6 +255,19 @@ class DispyHTTPServer(object):
                 self.end_headers()
                 self.wfile.write(json.dumps(cancelled).encode())
                 return
+            elif self.path == '/terminate_cluster':
+                names_of_clusters = [i.value for i in form.list]
+                del_jobs = [(cluster_info, job_id) for cluster_info in self._dispy_ctx._clusters.values() if cluster_info.cluster.name in names_of_clusters
+                                                   for job_id in cluster_info.jobs.keys()]
+                ret_values = [cluster_info.cluster.cancel(cluster_info.jobs[job_id]) for cluster_info, job_id in del_jobs]
+                delete_clusters = [cluster_info.cluster for cluster_info in self._dispy_ctx._clusters.values() if cluster_info.cluster.name in names_of_clusters]
+                [self._dispy_ctx.del_cluster(cl) for cl in delete_clusters]
+                if sum(ret_values) == 0:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write("OK".encode())
+                return
             elif self.path == '/add_node':
                 node = {'host': '', 'port': None, 'cpus': 0, 'cluster': None}
                 node_id = None
@@ -309,6 +344,7 @@ class DispyHTTPServer(object):
                  keyfile=None, certfile=None):
         self._cluster_lock = threading.Lock()
         self._clusters = {}
+        self.all_available_nodes = None
         if cluster:
             cluster_info = self.__class__._ClusterInfo(cluster)
             self._clusters[cluster.name] = cluster_info
@@ -382,6 +418,10 @@ class DispyHTTPServer(object):
         self._clusters[cluster.name] = cluster_info
         if cluster.status_callback is None:
             cluster.status_callback = functools.partial(self.cluster_status, cluster_info)
+
+    def update_list_of_nodes(self, nodes):
+        self.all_available_nodes = nodes
+
 
     def del_cluster(self, cluster):
         """When a cluster is no longer needed to be monitored with
